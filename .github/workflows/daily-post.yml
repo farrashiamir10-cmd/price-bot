@@ -1,5 +1,12 @@
 name: Scheduled Price & Article Posts
 
+# فقط یک اجرا در هر لحظه مجازه؛ اگه اجرای جدیدی شروع بشه در حالی که یکی
+# دیگه هنوز در حال کاره، صبر می‌کنه تا اون تموم بشه (نه اینکه هم‌زمان
+# اجرا بشن و باعث تداخل موقع push کردن state.json بشن).
+concurrency:
+  group: post-to-telegram
+  cancel-in-progress: false
+
 on:
   schedule:
     # هر اجرا در دقیقه 30، ساعات UTC معادل 9، 11، 13، 15، 17، 19، 21 به وقت تهران
@@ -52,12 +59,24 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git reset --soft origin/main
-          git add state.json
-          if ! git diff --cached --quiet; then
+
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --soft origin/main
+            git add state.json
+
+            if git diff --cached --quiet; then
+              echo "state.json تغییری نکرده؛ نیازی به commit نیست."
+              break
+            fi
+
             git commit -m "chore: update posted-articles state [skip ci]"
-            git push origin HEAD:main
-          else
-            echo "state.json تغییری نکرده؛ نیازی به commit نیست."
-          fi
+
+            if git push origin HEAD:main; then
+              echo "push موفق بود (تلاش $attempt)."
+              break
+            fi
+
+            echo "push رد شد (تلاش $attempt)، چند ثانیه صبر و تلاش دوباره..."
+            sleep 5
+          done
