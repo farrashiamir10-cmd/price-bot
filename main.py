@@ -27,6 +27,10 @@
 
 اجرای دستی با انتخاب دستیِ اسلات قیمت روز (0، 1 یا 2):
     FORCE_SLOT=price FORCE_PRICE_SLOT_INDEX=1 python3 main.py
+
+اجرای «تست کامل» - همه‌ی 16 دسته‌ی قیمت + چند مقاله در یک اجرا:
+    FORCE_SLOT=all python3 main.py
+    (یا: FORCE_SLOT=price TEST_ALL_CATEGORIES=1 python3 main.py برای فقط قیمت‌ها)
 """
 
 from __future__ import annotations
@@ -101,7 +105,22 @@ PRODUCTS_PER_CATEGORY = 6
 ARTICLE_CANDIDATES_LIMIT = 10  # چند مقاله اخیر بررسی بشه تا اولین «پست‌نشده» پیدا بشه
 
 
+def _get_int_env(name: str, default: int) -> int:
+    """مقدار متغیر محیطی رو به عدد صحیح تبدیل می‌کنه؛ اگه خالی/نامعتبر بود، default رو برمی‌گردونه."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 def get_todays_categories() -> list[str]:
+    # حالت تست: همه‌ی 16 دسته رو در یک اجرا پست کن (بدون توجه به اسلات زمانی)
+    if os.environ.get("TEST_ALL_CATEGORIES") == "1":
+        return ALL_CATEGORIES
+
     forced = os.environ.get("FORCE_PRICE_SLOT_INDEX")
     idx = int(forced) if forced is not None else get_price_slot_index()
 
@@ -203,23 +222,32 @@ def post_prices() -> None:
     print(f"\n✅ {posted_count} پست قیمت (از {len(todays_categories)} دسته) ارسال شد.")
 
 
-def post_article() -> None:
-    print("در حال بررسی مقالات...")
-    already_posted = set(get_posted_links_today())
-    candidates = get_latest_article_candidates(limit=ARTICLE_CANDIDATES_LIMIT)
+def post_article(count: int = 1) -> None:
+    print(f"در حال بررسی مقالات (تا {count} مقاله در این اجرا)...")
 
-    next_article = next((a for a in candidates if a.link not in already_posted), None)
+    posted_this_run = 0
+    for _ in range(count):
+        already_posted = set(get_posted_links_today())
+        candidates = get_latest_article_candidates(limit=ARTICLE_CANDIDATES_LIMIT)
 
-    if next_article is None:
-        print("همه مقالات اخیر امروز قبلا پست شده‌اند؛ پستی ارسال نشد.")
-        return
+        next_article = next((a for a in candidates if a.link not in already_posted), None)
 
-    next_article.summary = fetch_summary(next_article.link)
-    msg = build_article_message(next_article)
-    print(msg)
-    send_long_message(msg)
-    mark_article_posted(next_article.link)
-    print("پست مقاله ارسال شد.")
+        if next_article is None:
+            print("مقاله‌ی پست‌نشده‌ی دیگه‌ای پیدا نشد؛ اینجا متوقف میشیم.")
+            break
+
+        next_article.summary = fetch_summary(next_article.link)
+        msg = build_article_message(next_article)
+        print(f"\n----- پست مقاله {posted_this_run + 1} -----")
+        print(msg)
+        send_long_message(msg)
+        mark_article_posted(next_article.link)
+        posted_this_run += 1
+
+        if posted_this_run < count:
+            time.sleep(DELAY_BETWEEN_POSTS_SECONDS)
+
+    print(f"\n✅ {posted_this_run} پست مقاله ارسال شد.")
 
 
 def main() -> None:
@@ -229,7 +257,16 @@ def main() -> None:
     if slot == "price":
         post_prices()
     elif slot == "article":
-        post_article()
+        count = _get_int_env("TEST_ARTICLES_COUNT", 1)
+        post_article(count=count)
+    elif slot == "all":
+        # حالت تست کامل: همه‌ی 16 دسته‌ی قیمت + چند مقاله در همین یک اجرا
+        os.environ["TEST_ALL_CATEGORIES"] = "1"
+        print("=== حالت تست کامل: پست همه‌ی دسته‌های قیمت ===")
+        post_prices()
+        print("\n=== حالت تست کامل: پست مقاله‌ها ===")
+        count = _get_int_env("TEST_ARTICLES_COUNT", 4)
+        post_article(count=count)
     else:
         raise ValueError(f"نوع اسلات نامعتبر: {slot}")
 
