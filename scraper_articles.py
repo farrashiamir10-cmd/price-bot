@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -23,6 +24,7 @@ class Article:
     title: str
     link: str
     summary: str = ""
+    image_url: str = ""
 
 
 def fetch_html(url: str, timeout: int = 20) -> str:
@@ -50,8 +52,12 @@ def parse_latest_articles(html: str, limit: int = 5) -> list[Article]:
             continue
         title = title_tag.get_text(strip=True)
 
+        # عکس کاور مقاله مستقیماً از همین اسلایدر (بدون نیاز به fetch جداگانه)
+        img_el = a.select_one("img")
+        image_url = urljoin(HOME_URL, img_el["src"]) if img_el and img_el.get("src") else ""
+
         seen_links.add(href)
-        articles.append(Article(title=title, link=href))
+        articles.append(Article(title=title, link=href, image_url=image_url))
 
         if len(articles) >= limit:
             break
