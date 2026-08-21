@@ -26,12 +26,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
 from scraper_prices import fetch_home_html as _fetch_html_base  # reuse headers/session logic
 import requests
-from scraper_prices import HEADERS
+from scraper_prices import HEADERS, HOME_URL
 
 
 # صفحات دسته‌بندی که قراره قیمت‌هاشون پست بشه
@@ -58,6 +59,7 @@ class CategoryProduct:
     trend_dir: str  # up | down | flat
     trend_text: str
     link: str
+    image_url: str | None = None
 
 
 def fetch_category_html(url: str, timeout: int = 20) -> str:
@@ -98,6 +100,9 @@ def parse_category_products(html: str, limit: int | None = None) -> list[Categor
 
         link = card.get("href", "")
 
+        img_el = card.select_one(".hb-pcard-media img")
+        image_url = urljoin(HOME_URL, img_el["src"]) if img_el and img_el.get("src") else None
+
         products.append(
             CategoryProduct(
                 title=title,
@@ -106,6 +111,7 @@ def parse_category_products(html: str, limit: int | None = None) -> list[Categor
                 trend_dir=trend_dir,
                 trend_text=trend_text,
                 link=link,
+                image_url=image_url,
             )
         )
 
