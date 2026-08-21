@@ -42,7 +42,7 @@ from datetime import datetime
 from scraper_prices import get_price_boxes, PriceBox
 from scraper_articles import get_latest_article_candidates, fetch_summary, Article
 from scraper_categories import CATEGORY_PAGES, get_category_products
-from telegram_notifier import send_long_message
+from telegram_notifier import send_long_message, send_photo
 from scheduler import (
     TEHRAN_TZ,
     get_current_slot,
@@ -103,6 +103,40 @@ assert sum(PRICE_SLOT_CHUNK_SIZES) == len(ALL_CATEGORIES), "جمع بخش‌ها
 
 PRODUCTS_PER_CATEGORY = 6
 ARTICLE_CANDIDATES_LIMIT = 10  # چند مقاله اخیر بررسی بشه تا اولین «پست‌نشده» پیدا بشه
+
+# سقف کپشن عکس تلگرام واقعی 1024 کاراکتره؛ کمی کمتر برای اطمینان
+CAPTION_LIMIT = 1000
+
+
+def send_post(image_url: str | None, text: str) -> None:
+    """
+    یک پست رو به کانال می‌فرسته. اگه عکس داشته باشیم و متن کوتاه باشه، عکس
+    و متن رو تو یک پیام (عکس + کپشن) ترکیب می‌کنه. اگه متن طولانی‌تر از سقف
+    کپشن تلگرامه، اول عکس (بدون کپشن) بعد متن کامل رو جدا می‌فرسته تا چیزی
+    از قلم نیفته. اگه ارسال عکس با خطا مواجه بشه (مثلاً سایت لینک مستقیم
+    عکس رو مسدود کرده)، بی‌سروصدا فقط متن رو می‌فرسته.
+    """
+    if not image_url:
+        send_long_message(text)
+        return
+
+    if len(text) <= CAPTION_LIMIT:
+        try:
+            send_photo(image_url, caption=text)
+            return
+        except Exception as exc:  # noqa: BLE001
+            print(f"ارسال عکس+کپشن ناموفق بود ({exc})؛ به‌جاش فقط متن ارسال میشه.")
+            send_long_message(text)
+            return
+
+    # متن طولانی‌تره؛ عکس رو جدا (بدون کپشن) بفرست، بعد متن کامل رو
+    try:
+        send_photo(image_url, caption="")
+        time.sleep(DELAY_BETWEEN_POSTS_SECONDS)
+    except Exception as exc:  # noqa: BLE001
+        print(f"ارسال عکس ناموفق بود ({exc})؛ فقط متن ارسال میشه.")
+
+    send_long_message(text)
 
 
 def _get_int_env(name: str, default: int) -> int:
@@ -189,12 +223,16 @@ def post_prices() -> None:
 
     posted_count = 0
     for category in todays_categories:
+        image_url: str | None = None
+
         if category in CORE_CATEGORIES:
             box = boxes_by_category.get(category)
             if not box or not box.items:
                 print(f"دسته «{category}» در صفحه اصلی پیدا نشد یا خالی بود؛ رد شد.")
                 continue
             msg = build_core_category_message(box)
+            # اولین آیتمی که عکس داره رو به‌عنوان عکس نماینده‌ی این دسته انتخاب کن
+            image_url = next((it.image_url for it in box.items if it.image_url), None)
 
         elif category in CATEGORY_PAGES:
             print(f"در حال دریافت دسته «{category}»...")
@@ -208,14 +246,15 @@ def post_prices() -> None:
                 print(f"دسته «{category}» محصولی نداشت؛ رد شد.")
                 continue
             msg = build_extra_category_message(category, products)
+            image_url = next((p.image_url for p in products if p.image_url), None)
 
         else:
             print(f"دسته‌ی ناشناخته: {category}")
             continue
 
-        print(f"\n----- پست: {category} -----")
+        print(f"\n----- پست: {category} (عکس: {'دارد' if image_url else 'ندارد'}) -----")
         print(msg)
-        send_long_message(msg)
+        send_post(image_url, msg)
         posted_count += 1
         time.sleep(DELAY_BETWEEN_POSTS_SECONDS)
 
@@ -238,9 +277,9 @@ def post_article(count: int = 1) -> None:
 
         next_article.summary = fetch_summary(next_article.link)
         msg = build_article_message(next_article)
-        print(f"\n----- پست مقاله {posted_this_run + 1} -----")
+        print(f"\n----- پست مقاله {posted_this_run + 1} (عکس: {'دارد' if next_article.image_url else 'ندارد'}) -----")
         print(msg)
-        send_long_message(msg)
+        send_post(next_article.image_url or None, msg)
         mark_article_posted(next_article.link)
         posted_this_run += 1
 
