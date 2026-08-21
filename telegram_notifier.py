@@ -12,8 +12,10 @@ import time
 import requests
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
+TELEGRAM_API_PHOTO = "https://api.telegram.org/bot{token}/sendPhoto"
 
-MAX_LEN = 4000  # کمی کمتر از سقف واقعی تلگرام (4096) برای اطمینان
+MAX_LEN = 4000  # کمی کمتر از سقف واقعی تلگرام (4096) برای پیام‌های متنی
+CAPTION_MAX_LEN = 1000  # کمی کمتر از سقف واقعی تلگرام (1024) برای کپشن عکس
 
 
 def _post(token: str, chat_id: str, text: str, disable_preview: bool = True) -> None:
@@ -27,6 +29,40 @@ def _post(token: str, chat_id: str, text: str, disable_preview: bool = True) -> 
     resp = requests.post(url, data=payload, timeout=20)
     if not resp.ok:
         raise RuntimeError(f"Telegram error {resp.status_code}: {resp.text}")
+
+
+def _post_photo(token: str, chat_id: str, photo_url: str, caption: str = "") -> None:
+    url = TELEGRAM_API_PHOTO.format(token=token)
+    payload = {
+        "chat_id": chat_id,
+        "photo": photo_url,
+        "parse_mode": "HTML",
+    }
+    if caption:
+        payload["caption"] = caption
+
+    resp = requests.post(url, data=payload, timeout=30)
+    if not resp.ok:
+        raise RuntimeError(f"Telegram sendPhoto error {resp.status_code}: {resp.text}")
+
+
+def send_photo(
+    photo_url: str,
+    caption: str = "",
+    token: str | None = None,
+    chat_id: str | None = None,
+) -> None:
+    """
+    یک پست عکس‌دار به کانال می‌فرسته. اگه caption بیشتر از سقف مجاز تلگرام
+    (1024 کاراکتر) باشه، خودش کوتاهش می‌کنه تا خطا نده.
+    """
+    token = token or os.environ["TELEGRAM_BOT_TOKEN"]
+    chat_id = chat_id or os.environ["TELEGRAM_CHAT_ID"]
+
+    if len(caption) > CAPTION_MAX_LEN:
+        caption = caption[: CAPTION_MAX_LEN - 1] + "…"
+
+    _post_photo(token, chat_id, photo_url, caption)
 
 
 def send_long_message(text: str, token: str | None = None, chat_id: str | None = None) -> None:
