@@ -24,6 +24,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urljoin
+
 import requests
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
@@ -47,6 +49,7 @@ class PriceItem:
     change_text: str
     change_dir: str  # up | down | flat
     link: str | None
+    image_url: str | None = None
 
 
 @dataclass
@@ -103,6 +106,9 @@ def parse_price_boxes(html: str) -> list[PriceBox]:
 
             link = card.get("href") if card.name == "a" else None
 
+            img_el = card.select_one("img")
+            image_url = urljoin(HOME_URL, img_el["src"]) if img_el and img_el.get("src") else None
+
             items.append(
                 PriceItem(
                     title=title,
@@ -111,6 +117,7 @@ def parse_price_boxes(html: str) -> list[PriceBox]:
                     change_text=change_text,
                     change_dir=change_dir,
                     link=link,
+                    image_url=image_url,
                 )
             )
 
